@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>パースガイドカメラ</title>
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  body, html {
+    width: 100%;
+    height: 100%;
+    background-color: #000;
+    overflow: hidden;
+    position: fixed;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #fff;
+  }
+  #camera-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    touch-action: none;
+  }
+  video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+  }
+  #guide-wrapper {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    pointer-events: none;
+    transform-origin: center center;
+  }
+  #guide-image {
+    display: none;
+    max-width: 90vw;
+    max-height: 80vh;
+    opacity: 0.6;
+  }
+  #top-bar {
+    position: absolute;
+    top: env(safe-area-inset-top, 16px);
+    left: 0;
+    width: 100%;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+  }
+  .btn {
+    background: rgba(40, 40, 40, 0.85);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+  .btn:active {
+    background: rgba(80, 80, 80, 0.9);
+  }
+  input[type="file"] {
+    display: none;
+  }
+  #bottom-bar {
+    position: absolute;
+    bottom: env(safe-area-inset-bottom, 20px);
+    left: 0;
+    width: 100%;
+    padding: 16px 20px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 10;
+    background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
+  }
+  #slider-box {
+    width: 100%;
+    max-width: 340px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 8px 14px;
+    border-radius: 20px;
+  }
+  #slider-box label {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: #ffcc00;
+  }
+  #shutter-btn {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: #fff;
+    border: 4px solid rgba(255, 255, 255, 0.45);
+    box-shadow: 0 0 12px rgba(0,0,0,0.5);
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  #shutter-btn:active {
+    transform: scale(0.92);
+  }
+  #flash {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 20;
+    transition: opacity 0.15s ease-out;
+  }
+  #preview-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.92);
+    z-index: 30;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    gap: 16px;
+  }
+  #preview-img {
+    max-width: 90%;
+    max-height: 70%;
+    border-radius: 8px;
+    border: 1px solid #444;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+  }
+  .btn-primary {
+    background: #0a84ff;
+    border-color: #0a84ff;
+  }
+  #hint-text {
+    font-size: 12px;
+    color: #ccc;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="camera-container">
+  <video id="video" autoplay playsinline muted></video>
+  
+  <div id="guide-wrapper">
+    <img id="guide-image" alt="ガイド画像">
+  </div>
+
+  <div id="top-bar">
+    <label class="btn" for="file-input">📁 ガイド画像を選択</label>
+    <input type="file" id="file-input" accept="image/*">
+    <button class="btn" id="reset-btn" type="button">位置リセット</button>
+  </div>
+
+  <div id="bottom-bar">
+    <div id="slider-box">
+      <label for="opacity-slider">透過度</label>
+      <input type="range" id="opacity-slider" min="0" max="1" step="0.02" value="0.6">
+      <span id="opacity-val" style="font-size:12px; width:34px; text-align:right;">60%</span>
+    </div>
+    <button id="shutter-btn" type="button" aria-label="撮影"></button>
+  </div>
+</div>
+
+<div id="flash"></div>
+
+<div id="preview-modal">
+  <img id="preview-img" alt="撮影結果">
+  <p id="hint-text">「保存 / 共有」または画像を長押しして「写真に保存」してください</p>
+  <div class="modal-actions">
+    <button class="btn" id="close-modal-btn" type="button">撮り直す</button>
+    <button class="btn btn-primary" id="save-btn" type="button">保存 / 共有</button>
+  </div>
+</div>
+
+<canvas id="capture-canvas" style="display:none;"></canvas>
+
+<script>
+  const video = document.getElementById('video');
+  const fileInput = document.getElementById('file-input');
+  const guideWrapper = document.getElementById('guide-wrapper');
+  const guideImage = document.getElementById('guide-image');
+  const opacitySlider = document.getElementById('opacity-slider');
+  const opacityVal = document.getElementById('opacity-val');
+  const resetBtn = document.getElementById('reset-btn');
+  const shutterBtn = document.getElementById('shutter-btn');
+  const flash = document.getElementById('flash');
+  const canvas = document.getElementById('capture-canvas');
+  const previewModal = document.getElementById('preview-modal');
+  const previewImg = document.getElementById('preview-img');
+  const closeModalBtn = document.getElementById('close-modal-btn');
+  const saveBtn = document.getElementById('save-btn');
+  const container = document.getElementById('camera-container');
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('このブラウザではカメラ機能を利用できません。Safariの最新版で開いているか確認してください。');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+    } catch (err) {
+      alert('カメラの起動に失敗しました。HTTPS環境で開いているか、Safariのカメラ権限を確認してください。\nエラー: ' + err.message);
+    }
+  }
+  startCamera();
+
+  fileInput.addEventListener('change', function(e) {
+    const file = e.target.files.item(0);
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      guideImage.src = event.target.result;
+      guideImage.style.display = 'block';
+      resetTransform();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  opacitySlider.addEventListener('input', function(e) {
+    const val = parseFloat(e.target.value);
+    guideImage.style.opacity = val;
+    opacityVal.textContent = Math.round(val * 100) + '%';
+  });
+
+  let posX = 0;
+  let posY = 0;
+  let scale = 1;
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialPinchDistance = null;
+  let initialScale = 1;
+
+  function updateTransform() {
+    guideWrapper.style.transform = 'translate(calc(-50% + ' + posX + 'px), calc(-50% + ' + posY + 'px)) scale(' + scale + ')';
+  }
+
+  function resetTransform() {
+    posX = 0;
+    posY = 0;
+    scale = 1;
+    updateTransform();
+  }
+  resetBtn.addEventListener('click', resetTransform);
+
+  function getDistance(touches) {
+    const t0 = touches.item(0);
+    const t1 = touches.item(1);
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  container.addEventListener('touchstart', function(e) {
+    if (e.target.closest('#top-bar') || e.target.closest('#bottom-bar')) return;
+    if (e.touches.length === 1) {
+      const t0 = e.touches.item(0);
+      isDragging = true;
+      startX = t0.clientX - posX;
+      startY = t0.clientY - posY;
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      initialPinchDistance = getDistance(e.touches);
+      initialScale = scale;
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchmove', function(e) {
+    if (e.target.closest('#top-bar') || e.target.closest('#bottom-bar')) return;
+    e.preventDefault();
+    if (e.touches.length === 1 && isDragging) {
+      const t0 = e.touches.item(0);
+      posX = t0.clientX - startX;
+      posY = t0.clientY - startY;
+      updateTransform();
+    } else if (e.touches.length === 2 && initialPinchDistance) {
+      const currentDistance = getDistance(e.touches);
+      scale = Math.min(Math.max(0.2, initialScale * (currentDistance / initialPinchDistance)), 5);
+      updateTransform();
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchend', function() {
+    isDragging = false;
+    initialPinchDistance = null;
+  });
+
+  let capturedBlob = null;
+  let currentPreviewUrl = null;
+
+  shutterBtn.addEventListener('click', function() {
+    if (!video.videoWidth) return;
+
+    flash.style.opacity = '0.8';
+    setTimeout(function() {
+      flash.style.opacity = '0';
+    }, 100);
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(function(blob) {
+      if (currentPreviewUrl) {
+        URL.revokeObjectURL(currentPreviewUrl);
+      }
+      capturedBlob = blob;
+      currentPreviewUrl = URL.createObjectURL(blob);
+      previewImg.src = currentPreviewUrl;
+      previewModal.style.display = 'flex';
+    }, 'image/jpeg', 0.95);
+  });
+
+  closeModalBtn.addEventListener('click', function() {
+    previewModal.style.display = 'none';
+  });
+
+  saveBtn.addEventListener('click', async function() {
+    if (!capturedBlob) return;
+    const fileName = 'bg_' + Date.now() + '.jpg';
+    const file = new File([capturedBlob], fileName, { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: '背景写真'
+        });
+      } catch (err) {
+        console.log(err);
+      }
+    } else {
+      const a = document.createElement('a');
+      a.href = previewImg.src;
+      a.download = fileName;
+      a.click();
+    }
+  });
+</script>
+</body>
+</html>
