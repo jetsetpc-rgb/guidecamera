@@ -147,17 +147,37 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.92);
+    background: rgba(0,0,0,0.94);
     z-index: 30;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 20px;
-    gap: 16px;
+    padding: 16px;
+    gap: 14px;
   }
-  #preview-img {
-    max-width: 90%;
-    max-height: 70%;
+  .preview-pair {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    max-width: 500px;
+    justify-content: center;
+    align-items: center;
+  }
+  .preview-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .preview-item span {
+    font-size: 11px;
+    color: #aaa;
+  }
+  .preview-item img {
+    width: 100%;
+    max-height: 58vh;
+    object-fit: contain;
     border-radius: 8px;
     border: 1px solid #444;
   }
@@ -204,8 +224,17 @@
 <div id="flash"></div>
 
 <div id="preview-modal">
-  <img id="preview-img" alt="撮影結果">
-  <p id="hint-text">「保存 / 共有」または画像を長押しして「写真に保存」してください</p>
+  <div class="preview-pair">
+    <div class="preview-item">
+      <span>ガイド無し (JPG)</span>
+      <img id="preview-clean" alt="ガイド無し">
+    </div>
+    <div class="preview-item" id="preview-guide-box">
+      <span>ガイド入り (JPG)</span>
+      <img id="preview-guided" alt="ガイド入り">
+    </div>
+  </div>
+  <p id="hint-text">下のボタンから「2枚の画像を保存」で写真アプリへ一括保存できます</p>
   <div class="modal-actions">
     <button class="btn" id="close-modal-btn" type="button">撮り直す</button>
     <button class="btn btn-primary" id="save-btn" type="button">保存 / 共有</button>
@@ -214,7 +243,7 @@
 
 <canvas id="capture-canvas" style="display:none;"></canvas>
 
-<script>
+ <script>
   const video = document.getElementById('video');
   const fileInput = document.getElementById('file-input');
   const guideWrapper = document.getElementById('guide-wrapper');
@@ -226,7 +255,9 @@
   const flash = document.getElementById('flash');
   const canvas = document.getElementById('capture-canvas');
   const previewModal = document.getElementById('preview-modal');
-  const previewImg = document.getElementById('preview-img');
+  const previewClean = document.getElementById('preview-clean');
+  const previewGuided = document.getElementById('preview-guided');
+  const previewGuideBox = document.getElementById('preview-guide-box');
   const closeModalBtn = document.getElementById('close-modal-btn');
   const saveBtn = document.getElementById('save-btn');
   const container = document.getElementById('camera-container');
@@ -333,10 +364,20 @@
     initialPinchDistance = null;
   });
 
-  let capturedBlob = null;
-  let currentPreviewUrl = null;
+  let cleanBlob = null;
+  let guidedBlob = null;
+  let cleanUrl = null;
+  let guidedUrl = null;
 
-  shutterBtn.addEventListener('click', function() {
+  function canvasToJpegBlob(targetCanvas) {
+    return new Promise(function(resolve) {
+      targetCanvas.toBlob(function(blob) {
+        resolve(blob);
+      }, 'image/jpeg', 0.95);
+    });
+  }
+
+  shutterBtn.addEventListener('click', async function() {
     if (!video.videoWidth) return;
 
     flash.style.opacity = '0.8';
@@ -344,20 +385,66 @@
       flash.style.opacity = '0';
     }, 100);
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    canvas.width = vw;
+    canvas.height = vh;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob(function(blob) {
-      if (currentPreviewUrl) {
-        URL.revokeObjectURL(currentPreviewUrl);
+    // 1. ガイド無しの純粋な写真を生成
+    ctx.clearRect(0, 0, vw, vh);
+    ctx.drawImage(video, 0, 0, vw, vh);
+    if (cleanUrl) URL.revokeObjectURL(cleanUrl);
+    cleanBlob = await canvasToJpegBlob(canvas);
+    cleanUrl = URL.createObjectURL(cleanBlob);
+    previewClean.src = cleanUrl;
+
+    // 2. ガイド入りの写真を生成（ガイド画像が選択されている場合）
+    const hasGuide = guideImage.style.display !== 'none' && guideImage.complete && guideImage.naturalWidth > 0;
+    if (hasGuide) {
+      previewGuideBox.style.display = 'flex';
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      const videoAspect = vw / vh;
+      const containerAspect = cw / ch;
+
+      let displayedW, displayedH, offsetX, offsetY;
+      if (containerAspect > videoAspect) {
+        displayedW = cw;
+        displayedH = cw / videoAspect;
+        offsetX = 0;
+        offsetY = (ch - displayedH) / 2;
+      } else {
+        displayedH = ch;
+        displayedW = ch * videoAspect;
+        offsetX = (cw - displayedW) / 2;
+        offsetY = 0;
       }
-      capturedBlob = blob;
-      currentPreviewUrl = URL.createObjectURL(blob);
-      previewImg.src = currentPreviewUrl;
-      previewModal.style.display = 'flex';
-    }, 'image/jpeg', 0.95);
+
+      const rect = guideImage.getBoundingClientRect();
+      const mapScale = vw / displayedW;
+      const drawX = (rect.left - offsetX) * mapScale;
+      const drawY = (rect.top - offsetY) * mapScale;
+      const drawW = rect.width * mapScale;
+      const drawH = rect.height * mapScale;
+
+      ctx.save();
+      ctx.globalAlpha = parseFloat(opacitySlider.value);
+      ctx.drawImage(guideImage, drawX, drawY, drawW, drawH);
+      ctx.restore();
+
+      if (guidedUrl) URL.revokeObjectURL(guidedUrl);
+      guidedBlob = await canvasToJpegBlob(canvas);
+      guidedUrl = URL.createObjectURL(guidedBlob);
+      previewGuided.src = guidedUrl;
+      saveBtn.textContent = '2枚まとめて保存 / 共有';
+    } else {
+      previewGuideBox.style.display = 'none';
+      guidedBlob = null;
+      saveBtn.textContent = '保存 / 共有';
+    }
+
+    previewModal.style.display = 'flex';
   });
 
   closeModalBtn.addEventListener('click', function() {
@@ -365,23 +452,33 @@
   });
 
   saveBtn.addEventListener('click', async function() {
-    if (!capturedBlob) return;
-    const fileName = 'bg_' + Date.now() + '.jpg';
-    const file = new File([capturedBlob], fileName, { type: 'image/jpeg' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (!cleanBlob) return;
+    const timestamp = Date.now();
+    const filesToShare = [
+      new File([cleanBlob], 'bg_' + timestamp + '_clean.jpg', { type: 'image/jpeg' })
+    ];
+    if (guidedBlob) {
+      filesToShare.push(
+        new File([guidedBlob], 'bg_' + timestamp + '_guide.jpg', { type: 'image/jpeg' })
+      );
+    }
+
+    if (navigator.canShare && navigator.canShare({ files: filesToShare })) {
       try {
         await navigator.share({
-          files: [file],
-          title: '背景写真'
+          files: filesToShare,
+          title: '背景写真（JPG）'
         });
       } catch (err) {
         console.log(err);
       }
     } else {
-      const a = document.createElement('a');
-      a.href = previewImg.src;
-      a.download = fileName;
-      a.click();
+      filesToShare.forEach(function(f) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(f);
+        a.download = f.name;
+        a.click();
+      });
     }
   });
 </script>
